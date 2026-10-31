@@ -1,78 +1,96 @@
-# FortiGate Lab: Destination NAT (DNAT) & Hairpin NAT
+# FortiGate Lab: DNAT Port Forwarding
 
-## 📌 Scenario Overview
-This lab demonstrates how to securely publish an internal web server (Apache) to an external network (WAN) using **Destination NAT (DNAT / Port Forwarding)** on a FortiGate firewall. 
+## Scenario Overview
 
-Because the external testing client (Ubuntu) resides on the same Layer 2 subnet as the FortiGate's WAN interface, **Hairpin NAT (Source NAT)** was also implemented to ensure return traffic correctly routes back through the firewall.
+This lab uses a FortiGate Virtual IP (VIP) to publish an internal Apache web server. Requests sent to WAN port `8080` are forwarded to port `80` on the internal server.
 
-## 🗺️ Network Topology
+> This is **not hairpin NAT**: the test client is on the WAN network and the server is on the LAN. Because they are on different subnets and the server’s default gateway is the FortiGate, the server’s replies naturally pass back through the FortiGate. Source NAT is not required for this topology.
 
-![Network Topology](topology.png)
+## Network Topology and IP Addressing
 
-### IP Addressing Table
+| Device | Interface | IP address | Network |
+|---|---|---:|---|
+| Apache Server | `eth1` | `192.168.10.3` | LAN |
+| LAN VPC | `eth0` | `192.168.10.2` | LAN |
+| FortiGate | `port2` (LAN) | `192.168.10.1` | LAN |
+| FortiGate | `port1` (WAN) | `192.168.93.154` | WAN |
+| WAN VPC | `eth0` | `192.168.93.155` | WAN |
+| Ubuntu Server | `eth1` | `192.168.93.156` | WAN |
 
-| Device | Interface | IP Address | Network Zone |
-| :--- | :--- | :--- | :--- |
-| **Apache2 Server** | eth1 | `192.168.10.3` | LAN (Internal) |
-| **LAN VPC** | eth0 | `192.168.10.2` | LAN (Internal) |
-| **FortiGate Firewall** | port2 (LAN) | `192.168.10.1` (Gateway) | LAN (Internal) |
-| **FortiGate Firewall** | port1 (WAN) | `192.168.93.154` | WAN (External) |
-| **WAN VPC** | eth0 | `192.168.93.155` | WAN (External) |
-| **Ubuntu Server** | eth1 | `192.168.93.156` | WAN (External) |
+## Objectives
 
-## 🎯 Lab Objectives
-1. Allow external devices to access the internal Apache web server.
-2. Map WAN Port `8080` to Internal Port `80`.
-3. Overcome the "Hairpin NAT" limitation since the WAN testing client (Ubuntu) is on the same subnet as the FortiGate WAN IP.
+1. Publish the internal Apache web server through the FortiGate.
+2. Map WAN port `8080` to internal port `80`.
+3. Test the connection from Ubuntu on the WAN network.
 
----
+## Prerequisite: Apache Web Server
 
-## 🛠️ Configuration Steps
+Make sure Apache is running on `192.168.10.3` and that its default gateway is `192.168.10.1`. To test local access, run this from a LAN host:
 
-### Step 1: Configure the Apache Server
-1. Ensure the Apache server is running and has its default gateway set to the FortiGate's LAN interface (`192.168.10.1`).
-2. Verify the web server is accessible locally.
-3. *(Optional)* Modify the default web page text: `sudo nano /var/www/html/index.html`.
-
-### Step 2: Configure Virtual IP (DNAT) on FortiGate
-This maps the external WAN IP and port to the internal IP and port.
-* **GUI Path:** `Policy & Objects > Virtual IPs > Create New`
-* **CLI Configuration:**
 ```bash
+curl -v http://192.168.10.3
+```
+
+To edit the default web page, if needed:
+
+```bash
+sudo nano /var/www/html/index.html
+```
+
+## Create the DNAT VIP
+
+In the FortiGate GUI, go to:
+
+`Policy & Objects > Virtual IPs > Create New`
+
+Configure the VIP as follows:
+
+- **Name:** `Apache_DNAT`
+- **Interface:** `port1`
+- **External IP:** `192.168.93.154`
+- **Port Forwarding:** Enabled
+- **Protocol:** TCP
+- **External Service Port:** `8080`
+- **Map to Port:** `80`
+- **Mapped IP:** `192.168.10.3`
+
+CLI equivalent:
+
+```text
 config firewall vip
     edit "Apache_DNAT"
         set extip 192.168.93.154
         set extintf "port1"
         set portforward enable
+        set protocol tcp
         set extport 8080
         set mappedip "192.168.10.3"
         set mappedport 80
     next
 end
-Step 3: Create the Firewall Policy (with Hairpin NAT)
-This allows the traffic to pass through the firewall and applies Source NAT to fix the routing for clients on the same WAN subnet.
+```
 
-GUI Path: Policy & Objects > Firewall Policy > Create New
+## Create the Firewall Policy
 
-Settings:
+This policy allows TCP traffic arriving at the VIP on `port1` to reach the LAN server through `port2`.
 
-Incoming Interface: port1
+In the FortiGate GUI, go to:
 
-Outgoing Interface: port2
+`Policy & Objects > Firewall Policy > Create New`
 
-Source: all
+Configure the policy as follows:
 
-Destination: Apache_DNAT (VIP)
+- **Incoming Interface:** `port1`
+- **Outgoing Interface:** `port2`
+- **Source:** `all` (for this lab; in production, restrict this to permitted source IPs where possible)
+- **Destination:** `Apache_DNAT` (the VIP)
+- **Service:** `HTTP` (the destination port after DNAT is applied)
+- **Action:** `ACCEPT`
+- **NAT:** Disabled
 
-Service: ALL (or TCP/8080)
+CLI equivalent:
 
-Action: ACCEPT
-
-NAT: ENABLED (Crucial for Hairpin NAT)
-
-CLI Configuration:
-
-bash
+```text
 config firewall policy
     edit 0
         set name "WAN_to_LAN_DNAT"
@@ -82,69 +100,46 @@ config firewall policy
         set dstaddr "Apache_DNAT"
         set action accept
         set schedule "always"
-        set service "ALL"
-        set nat enable
+        set service "HTTP"
+        set nat disable
     next
 end
-🧪 Testing and Verification
-Testing was performed from the Ubuntu Server (192.168.93.156), which acts as an external WAN client.
+```
 
-Test Command:
+> If the FortiGate is configured for Central NAT, the relevant VIP and policy settings may differ. Option names and commands can also vary by FortiOS version.
 
-bash
+## Test the Connection
+
+From Ubuntu on the WAN network, run:
+
+```bash
 curl -v http://192.168.93.154:8080
-Expected Output (Success):
+```
 
-text
-*   Trying 192.168.93.154:8080...
-* TCP_NODELAY set
-* Connected to 192.168.93.154 (192.168.93.154) port 8080 (#0)
-> GET / HTTP/1.1
-> Host: 192.168.93.154:8080
-> User-Agent: curl/7.68.0
-> Accept: */*
-> 
-* Mark bundle as not supporting multiuse
+If successful, you should receive a response similar to:
+
+```text
 < HTTP/1.1 200 OK
-< Date: Sat, 31 Oct 2026 06:50:04 GMT
 < Server: Apache/2.4.41 (Ubuntu)
-< Last-Modified: Mon, 08 Mar 2021 11:19:25 GMT
-< ETag: "16-5bd049b34c940"
-< Accept-Ranges: bytes
-< Content-Length: 22
 < Content-Type: text/html
-< 
+
 Web Server is running
-* Connection #0 to host 192.168.93.154 left intact
-Analysis of the Output
-Connected to 192.168.93.154 port 8080: The client successfully connected to the FortiGate WAN IP.
+```
 
-HTTP/1.1 200 OK: The FortiGate successfully translated the request and forwarded it to the internal LAN.
+## Troubleshooting Checklist
 
-Server: Apache/2.4.41 (Ubuntu): The response is originating directly from the internal Apache server.
+- Confirm Apache is listening on `192.168.10.3:80`.
+- The Apache server’s default gateway should be `192.168.10.1`.
+- The policy’s incoming interface should be `port1`, and its outgoing interface should be `port2`.
+- The policy destination should be the VIP, `Apache_DNAT`, not the server’s IP address directly.
+- The policy service should be HTTP, or a custom TCP service with destination port `80`.
+- The VIP should map external port `8080` to internal port `80`.
+- For this topology, leave NAT disabled on the policy so the server can see the client’s real IP address.
 
-The payload ("Web Server is running") proves the end-to-end data flow is intact.
+## Lab Files
 
-📂 Lab Files & Import
-If you want to test this configuration yourself, you can download the PNETLab export file:
+If `DNAT.unl` and `topology.png` are included with the lab, link them here. Merely naming these files without attaching them or providing download links does not make them accessible.
 
-DNAT.unl - PNETLab topology file.
+## Security Note
 
-How to import:
-
-Download the .unl file.
-
-Log into your PNETLab web interface.
-
-Go to the main menu and select Lab Preview -> Import (or drag and drop the file into the workspace).
-
-Upload the file and start the nodes.
-
-💡 Key Takeaways
-What is Hairpin NAT? If a client on the WAN subnet tries to access the WAN IP of the firewall, the firewall DNATs it to the LAN. However, the LAN server will try to reply directly to the client (since they are on the same subnet), bypassing the firewall, and the connection will drop. Enabling NAT on the firewall policy forces the reply to go back through the FortiGate.
-
-Routing: Always ensure the internal server's Default Gateway points to the firewall's internal interface. Without this, the server won't know how to reply to external requests.
-
-text
-
-***
+This configuration makes the web server reachable from the WAN. In a production environment, restrict permitted source addresses where possible, allow only the required services and ports, and use HTTPS rather than unencrypted HTTP. FortiGate documentation also describes using the VIP as the firewall policy’s destination and disabling policy NAT when preserving the client’s source IP is required. <citation src="1,3"></citation>
