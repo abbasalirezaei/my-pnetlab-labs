@@ -1,7 +1,7 @@
 # FortiGate Lab: DNAT Port Forwarding
 
 ## Scenario Overview
-
+![Network Topology](topology.png)
 This lab uses a FortiGate Virtual IP (VIP) to publish an internal Apache web server. Requests sent to WAN port `8080` are forwarded to port `80` on the internal server.
 
 > This is **not hairpin NAT**: the test client is on the WAN network and the server is on the LAN. Because they are on different subnets and the server’s default gateway is the FortiGate, the server’s replies naturally pass back through the FortiGate. Source NAT is not required for this topology.
