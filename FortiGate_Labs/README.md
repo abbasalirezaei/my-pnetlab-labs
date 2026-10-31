@@ -21,7 +21,7 @@ This lab uses a FortiGate Virtual IP (VIP) to publish an internal Apache web ser
 
 ## Prerequisites: Verify Network Configuration
 
-After importing and starting the `.unl` lab, verify the interface and IP settings on each node. Depending on your PNETLab setup and VM images, some settings may need to be configured manually.
+After importing and starting the `DNAT_Lab.crdownload` lab, verify the interface and IP settings on each node. Depending on your PNETLab setup and VM images, some settings may need to be configured manually.
 
 ### 1. Configure the Apache Server
 
@@ -209,7 +209,7 @@ Web Server is running
 
 ## Lab Files
 
-- [`DNAT.unl`](./DNAT.unl) — PNETLab topology file. Verify node configuration after importing; configure IPs manually if they were not retained.
+- [`DNAT_Lab.crdownload`](./DNAT_Lab.crdownload) — PNETLab topology file. Verify node configuration after importing; configure IPs manually if they were not retained.
 - [`topology.png`](./topology.png) — Network diagram.
 
 ## Security Note
